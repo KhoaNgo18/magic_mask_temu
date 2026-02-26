@@ -15,6 +15,15 @@ from sam_2 import (
     run_tracking_video,
 )
 
+APP_CSS = """
+#frame_view img,
+#tracking_view video {
+    width: 100% !important;
+    max-height: 78vh !important;
+    object-fit: contain !important;
+}
+"""
+
 
 def _to_numpy_image(data: Any) -> np.ndarray:
     if isinstance(data, torch.Tensor):
@@ -546,7 +555,7 @@ def on_track(frame_index: int, runtime, video_state, pos_points, neg_points):
 
 
 def build_app(initial_runtime: Sam2Runtime | None = None, startup_status: str = "Upload a video to start.") -> gr.Blocks:
-    with gr.Blocks(title="SAM2 Video Segmentation") as demo:
+    with gr.Blocks(title="SAM2 Video Segmentation", css=APP_CSS) as demo:
         gr.Markdown("## SAM2 Video Segmentation (single_image + tracking_video)")
 
         runtime_state = gr.State(initial_runtime)
@@ -569,19 +578,21 @@ def build_app(initial_runtime: Sam2Runtime | None = None, startup_status: str = 
                 label="single_image (click to add point)",
                 type="numpy",
                 interactive=True,
-                height=720,
+                elem_id="frame_view",
             )
 
         with gr.Row():
-            tracking_view = gr.Video(label="tracking_video Output")
-            points_view = gr.Dataframe(
-                headers=["type", "index", "x", "y", "delete"],
-                datatype=["str", "number", "number", "number", "str"],
-                value=_points_table_rows([], []),
-                interactive=False,
-                wrap=True,
-                label="Points Table (click Delete cell to remove point)",
-            )
+            with gr.Column(scale=3):
+                tracking_view = gr.Video(label="tracking_video Output", elem_id="tracking_view")
+            with gr.Column(scale=2):
+                points_view = gr.Dataframe(
+                    headers=["type", "index", "x", "y", "delete"],
+                    datatype=["str", "number", "number", "number", "str"],
+                    value=_points_table_rows([], []),
+                    interactive=False,
+                    wrap=True,
+                    label="Points Table (click Delete cell to remove point)",
+                )
 
         status = gr.Textbox(label="Status", value=startup_status, interactive=False)
 

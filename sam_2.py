@@ -300,6 +300,61 @@ def _encode_raw_video(raw_frames: np.ndarray, input_pix_fmt: str, fps: float, ou
     return output_path
 
 
+def _parse_ffmpeg_ratio(value: str) -> float | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    if "/" in text:
+        try:
+            num, den = text.split("/", 1)
+            den_f = float(den)
+            if den_f == 0:
+                return None
+            fps = float(num) / den_f
+            return fps if fps > 0 else None
+        except ValueError:
+            return None
+    try:
+        fps = float(text)
+        return fps if fps > 0 else None
+    except ValueError:
+        return None
+
+
+def _infer_input_video_fps(video_state: dict[str, Any], default_fps: float = 24.0) -> float:
+    video_path = video_state.get("video_path")
+    if not isinstance(video_path, str) or not video_path:
+        return default_fps
+
+    cmd = [
+        "ffprobe",
+        "-v",
+        "error",
+        "-select_streams",
+        "v:0",
+        "-show_entries",
+        "stream=avg_frame_rate,r_frame_rate",
+        "-of",
+        "default=noprint_wrappers=1:nokey=1",
+        video_path,
+    ]
+    try:
+        proc = subprocess.run(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            check=True,
+        )
+        for line in proc.stdout.splitlines():
+            fps = _parse_ffmpeg_ratio(line)
+            if fps is not None:
+                return max(fps, 1.0)
+    except Exception:
+        pass
+    return default_fps
+
+
 def _export_masked_rgba_video(video_state: dict[str, Any], mask_sequence: Any, fps: float = 24.0) -> str:
     frames = _to_uint8_frame_sequence(video_state["frames"])
     masks = _to_uint8_mask_sequence(mask_sequence)
@@ -449,11 +504,13 @@ def run_tracking_video(
                 ),
                 0,
             )
-    masked_video_path = _export_masked_rgba_video(video_state, mask_sequence, fps=24.0)
+    input_fps = _infer_input_video_fps(video_state, default_fps=24.0)
+    masked_video_path = _export_masked_rgba_video(video_state, mask_sequence, fps=input_fps)
     return {
         "mode": "tracking_video",
         "frame_index": int(frame_index),
         "object_index": int(object_index),
+        "fps": float(input_fps),
         "mask_sequence": mask_sequence,
         "masked_video_path": masked_video_path,
         "tracking_output": track_out,
