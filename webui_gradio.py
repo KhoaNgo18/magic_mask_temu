@@ -6,6 +6,7 @@ import gradio as gr
 import numpy as np
 import torch
 
+from frame_interpolate import interpolate_video
 from sam_2 import (
     Sam2Runtime,
     get_frame_image,
@@ -17,7 +18,8 @@ from sam_2 import (
 
 APP_CSS = """
 #frame_view img,
-#tracking_view video {
+#tracking_view video,
+#interp_view video {
     width: 100% !important;
     max-height: 78vh !important;
     object-fit: contain !important;
@@ -554,9 +556,40 @@ def on_track(frame_index: int, runtime, video_state, pos_points, neg_points):
         return None, f"Tracking failed: {exc}"
 
 
+def on_frame_interpolate(
+    video_input: Any,
+    multiplier: int,
+    ckpt_name: str,
+    fast_mode: bool,
+    ensemble: bool,
+    scale_factor: int,
+    output_prefix: str,
+):
+    try:
+        video_path = _extract_uploaded_video_path(video_input)
+        if not video_path:
+            raise ValueError("Upload a video first.")
+
+        result = interpolate_video(
+            input_video_path=video_path,
+            output_prefix=output_prefix.strip() or None,
+            ckpt_name=ckpt_name,
+            multiplier=int(multiplier),
+            fast_mode=bool(fast_mode),
+            ensemble=bool(ensemble),
+            scale_factor=int(scale_factor),
+        )
+        output_video_path = result.get("video_path")
+        if isinstance(output_video_path, str) and os.path.exists(output_video_path):
+            return output_video_path, f"Frame interpolation completed. Output: {output_video_path}"
+        return None, "Frame interpolation completed, but output video path was not found."
+    except Exception as exc:
+        return None, f"Frame interpolation failed: {exc}"
+
+
 def build_app(initial_runtime: Sam2Runtime | None = None, startup_status: str = "Upload a video to start.") -> gr.Blocks:
     with gr.Blocks(title="SAM2 Video Segmentation", css=APP_CSS) as demo:
-        gr.Markdown("## SAM2 Video Segmentation (single_image + tracking_video)")
+        gr.Markdown("## Video Tools")
 
         runtime_state = gr.State(initial_runtime)
         video_state = gr.State(None)
@@ -565,36 +598,68 @@ def build_app(initial_runtime: Sam2Runtime | None = None, startup_status: str = 
         negative_points_state = gr.State([])
         selected_point_state = gr.State(None)
 
-        with gr.Row():
-            video_input = gr.Video(label="Upload Video", sources=["upload"])
-            with gr.Column():
-                frame_slider = gr.Slider(label="Frame Index", minimum=0, maximum=0, value=0, step=1)
-                point_mode = gr.Radio(choices=["positive", "negative"], value="positive", label="Point Type")
-                clear_points_btn = gr.Button("Clear All Points")
-                track_btn = gr.Button("Start Tracking")
+        with gr.Tabs():
+            with gr.Tab("SAM2 Segmentation"):
+                with gr.Row():
+                    video_input = gr.Video(label="Upload Video", sources=["upload"])
+                    with gr.Column():
+                        frame_slider = gr.Slider(label="Frame Index", minimum=0, maximum=0, value=0, step=1)
+                        point_mode = gr.Radio(choices=["positive", "negative"], value="positive", label="Point Type")
+                        clear_points_btn = gr.Button("Clear All Points")
+                        track_btn = gr.Button("Start Tracking")
 
-        with gr.Row():
-            frame_view = gr.Image(
-                label="single_image (click to add point)",
-                type="numpy",
-                interactive=True,
-                elem_id="frame_view",
-            )
+                with gr.Row():
+                    frame_view = gr.Image(
+                        label="single_image (click to add point)",
+                        type="numpy",
+                        interactive=True,
+                        elem_id="frame_view",
+                    )
 
-        with gr.Row():
-            with gr.Column(scale=3):
-                tracking_view = gr.Video(label="tracking_video Output", elem_id="tracking_view")
-            with gr.Column(scale=2):
-                points_view = gr.Dataframe(
-                    headers=["type", "index", "x", "y", "delete"],
-                    datatype=["str", "number", "number", "number", "str"],
-                    value=_points_table_rows([], []),
-                    interactive=False,
-                    wrap=True,
-                    label="Points Table (click Delete cell to remove point)",
-                )
+                with gr.Row():
+                    with gr.Column(scale=3):
+                        tracking_view = gr.Video(label="tracking_video Output", elem_id="tracking_view")
+                    with gr.Column(scale=2):
+                        points_view = gr.Dataframe(
+                            headers=["type", "index", "x", "y", "delete"],
+                            datatype=["str", "number", "number", "number", "str"],
+                            value=_points_table_rows([], []),
+                            interactive=False,
+                            wrap=True,
+                            label="Points Table (click Delete cell to remove point)",
+                        )
+                status = gr.Textbox(label="Status", value=startup_status, interactive=False)
 
-        status = gr.Textbox(label="Status", value=startup_status, interactive=False)
+            with gr.Tab("Frame Interpolate"):
+                with gr.Row():
+                    interp_video_input = gr.Video(label="Upload Video", sources=["upload"])
+                    with gr.Column():
+                        interp_multiplier = gr.Slider(
+                            label="Multiplier",
+                            minimum=2,
+                            maximum=8,
+                            value=2,
+                            step=1,
+                        )
+                        interp_ckpt = gr.Textbox(label="RIFE Checkpoint", value="rife49.pth")
+                        interp_scale_factor = gr.Slider(
+                            label="Scale Factor",
+                            minimum=1,
+                            maximum=4,
+                            value=1,
+                            step=1,
+                        )
+                        interp_fast_mode = gr.Checkbox(label="Fast Mode", value=False)
+                        interp_ensemble = gr.Checkbox(label="Ensemble", value=True)
+                        interp_output_prefix = gr.Textbox(
+                            label="Output Prefix (optional)",
+                            value="",
+                            placeholder="interpolated_video_name",
+                        )
+                        interp_btn = gr.Button("Run Frame Interpolate")
+
+                interp_output_video = gr.Video(label="Interpolated Video", elem_id="interp_view")
+                interp_status = gr.Textbox(label="Interpolate Status", value="Upload a video and run interpolation.", interactive=False)
 
         video_input.change(
             fn=on_upload_video,
@@ -641,6 +706,20 @@ def build_app(initial_runtime: Sam2Runtime | None = None, startup_status: str = 
             fn=on_track,
             inputs=[current_frame_state, runtime_state, video_state, positive_points_state, negative_points_state],
             outputs=[tracking_view, status],
+        )
+
+        interp_btn.click(
+            fn=on_frame_interpolate,
+            inputs=[
+                interp_video_input,
+                interp_multiplier,
+                interp_ckpt,
+                interp_fast_mode,
+                interp_ensemble,
+                interp_scale_factor,
+                interp_output_prefix,
+            ],
+            outputs=[interp_output_video, interp_status],
         )
 
     return demo

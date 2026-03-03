@@ -37,19 +37,26 @@ WORKDIR /workspace/ComfyUI/custom_nodes
 RUN git clone https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite.git && \
     git clone https://github.com/kijai/ComfyUI-segment-anything-2.git && \
     git clone https://github.com/cubiq/ComfyUI_essentials.git && \
-    git clone https://github.com/kijai/ComfyUI-KJNodes.git
+    git clone https://github.com/kijai/ComfyUI-KJNodes.git && \
+    git clone https://github.com/Fannovel16/ComfyUI-Frame-Interpolation.git
 
 # Install requirements for custom nodes (if present)
-RUN for d in ComfyUI-VideoHelperSuite ComfyUI-segment-anything-2 ComfyUI_essentials ComfyUI-KJNodes; do \
+RUN for d in ComfyUI-VideoHelperSuite ComfyUI-segment-anything-2 ComfyUI_essentials ComfyUI-KJNodes ComfyUI-Frame-Interpolation; do \
       if [ -f "$d/requirements.txt" ]; then \
         python -m pip install -r "$d/requirements.txt"; \
+      fi; \
+      if [ -f "$d/requirements-no-cupy.txt" ]; then \
+        python -m pip install -r "$d/requirements-no-cupy.txt"; \
+      fi; \
+      if [ -f "$d/install.py" ]; then \
+        (cd "$d" && python install.py); \
       fi; \
     done
 
 WORKDIR /workspace
 
 # Copy local Gradio app files
-COPY webui_gradio.py sam_2.py /workspace/
+COPY webui_gradio.py sam_2.py frame_interpolate.py /workspace/
 
 # Gradio network settings for container access
 ENV GRADIO_SERVER_NAME=0.0.0.0
