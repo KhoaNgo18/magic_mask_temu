@@ -25,6 +25,8 @@ RUN git clone https://github.com/Comfy-Org/ComfyUI.git /workspace/ComfyUI
 
 WORKDIR /workspace/ComfyUI
 
+RUN git checkout afb54219fac341fa8614fdab090fe8096d0aec1e
+
 # Install CUDA 11.8 PyTorch wheels
 RUN python -m pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
 
